@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
@@ -8,7 +8,8 @@ import {
   ShieldCheck, AlertTriangle, FileText, Bot, ArrowRight, Loader2,
   CheckCircle, AlertCircle, Info, UploadCloud, X, Clipboard,
   LayoutDashboard, BookOpen, Zap, ChevronRight, Database, Server,
-  Copy, Check
+  Copy, Check, Code, Target, TrendingUp, Brain, User, Network, Lightbulb,
+  Terminal, Play
 } from 'lucide-react';
 
 // Utility for cleaner tailwind classes
@@ -17,7 +18,11 @@ function cn(...inputs: ClassValue[]) {
 }
 
 export default function Home() {
-  const [currentView, setCurrentView] = useState<'home' | 'guide' | 'agent' | 'docs'>('home');
+  const [currentView, setCurrentView] = useState<'home' | 'guide' | 'agent' | 'database' | 'story'>('home');
+
+  // Lifted state for Agent View
+  const [contractText, setContractText] = useState('');
+  const [agentActiveTab, setAgentActiveTab] = useState<'text' | 'pdf'>('text');
 
   return (
     <div className="min-h-screen bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-indigo-900 via-purple-950 to-black text-white font-sans selection:bg-indigo-500/30">
@@ -38,17 +43,18 @@ export default function Home() {
             </span>
           </div>
 
-          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-full border border-white/10">
+          <div className="flex items-center gap-1 bg-white/5 p-1 rounded-full border border-white/10 overflow-x-auto">
             {[
               { id: 'home', label: 'Home', icon: LayoutDashboard },
               { id: 'agent', label: 'Agent', icon: Zap },
-              { id: 'docs', label: 'Docs', icon: BookOpen },
+              { id: 'database', label: 'Database', icon: Database },
+              { id: 'story', label: 'Why This Project', icon: Lightbulb },
             ].map((tab) => (
               <button
                 key={tab.id}
                 onClick={() => setCurrentView(tab.id as any)}
                 className={cn(
-                  "px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all duration-300",
+                  "px-4 py-2 rounded-full text-sm font-medium flex items-center gap-2 transition-all duration-300 whitespace-nowrap",
                   (currentView === tab.id || (tab.id === 'agent' && currentView === 'guide'))
                     ? "bg-indigo-600 text-white shadow-lg shadow-indigo-500/25"
                     : "text-slate-400 hover:text-white hover:bg-white/5"
@@ -67,8 +73,26 @@ export default function Home() {
         <AnimatePresence mode="wait">
           {currentView === 'home' && <HomeView key="home" onLaunch={() => setCurrentView('guide')} />}
           {currentView === 'guide' && <GuideView key="guide" onStart={() => setCurrentView('agent')} />}
-          {currentView === 'agent' && <AgentView key="agent" />}
-          {currentView === 'docs' && <DocsView key="docs" />}
+          {currentView === 'agent' && (
+            <AgentView
+              key="agent"
+              contractText={contractText}
+              setContractText={setContractText}
+              activeTab={agentActiveTab}
+              setActiveTab={setAgentActiveTab}
+            />
+          )}
+          {currentView === 'database' && (
+            <DatabaseView
+              key="database"
+              onPromptClick={(text) => {
+                setContractText(text);
+                setAgentActiveTab('text');
+                setCurrentView('agent');
+              }}
+            />
+          )}
+          {currentView === 'story' && <StoryView key="story" />}
         </AnimatePresence>
       </main>
     </div>
@@ -266,7 +290,7 @@ function GuideView({ onStart }: { onStart: () => void }) {
           <p className="text-slate-300 mb-4">Don't have a contract? Copy this text to test the conflict detector:</p>
 
           <div className="bg-black/30 p-4 rounded-lg border border-white/10 font-mono text-sm text-slate-300 relative">
-            "{mockText}"
+            "{mockText.substring(0, 60)}..."
             <button
               onClick={handleCopy}
               className="absolute top-2 right-2 p-2 bg-white/10 hover:bg-white/20 rounded-md transition-colors text-white"
@@ -292,9 +316,14 @@ function GuideView({ onStart }: { onStart: () => void }) {
   );
 }
 
-function AgentView() {
-  const [activeTab, setActiveTab] = useState<'text' | 'pdf'>('text');
-  const [contractText, setContractText] = useState('');
+interface AgentViewProps {
+  contractText: string;
+  setContractText: (text: string) => void;
+  activeTab: 'text' | 'pdf';
+  setActiveTab: (tab: 'text' | 'pdf') => void;
+}
+
+function AgentView({ contractText, setContractText, activeTab, setActiveTab }: AgentViewProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [result, setResult] = useState<any>(null);
@@ -596,73 +625,342 @@ function AgentView() {
   );
 }
 
-function DocsView() {
+function DatabaseView({ onPromptClick }: { onPromptClick: (text: string) => void }) {
+  const [contracts, setContracts] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchContracts = async () => {
+      try {
+        const res = await fetch('/api/contracts');
+        const data = await res.json();
+        if (Array.isArray(data)) {
+          setContracts(data);
+        }
+      } catch (error) {
+        console.error('Failed to fetch contracts', error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchContracts();
+  }, []);
+
+  const sqlSnippet = `
+-- Enable Vector Extension
+create extension if not exists vector;
+
+-- Create Contracts Table
+create table contracts (
+  id bigserial primary key,
+  content text,
+  counterparty text,
+  embedding vector(1536)
+);
+
+-- Insert Dummy Data (The Ground Truth)
+insert into contracts (counterparty, content) values 
+('Acme Corp', 'Master Agreement 2023... Liability Cap: $50,000...'),
+('Globex', 'NDA 2024... Governing Law: Delaware...'),
+('Soylent Corp', 'Supply Agreement... Payment Terms: Net 30...');
+  `.trim();
+
+  const scenarios = [
+    {
+      title: "Acme Corp Renewal",
+      desc: "High Risk: $5M Liability Shift",
+      type: "risk",
+      text: "SERVICE ORDER - ACME CORP RENEWAL\nCounterparty: Acme Corp\nLiability: Notwithstanding the Master Agreement, the Provider’s total liability is hereby increased to $5,000,000.\nRenewal: This Order shall automatically renew for subsequent 5-year terms unless cancelled with 180 days’ notice.\nGoverning Law: Laws of France."
+    },
+    {
+      title: "Globex NDA",
+      desc: "Conflict: Missing GDPR Clause",
+      type: "conflict",
+      text: "NDA - GLOBEX CORPORATION\nCounterparty: Globex\nConfidentiality: 3 years.\nJurisdiction: New York.\n(Note: This draft is missing the mandatory GDPR Data Processing Addendum required by the Master Agreement)."
+    },
+    {
+      title: "Soylent Standard",
+      desc: "Safe: Aligned with Master",
+      type: "safe",
+      text: "RENEWAL ORDER - SOYLENT CORP\nCounterparty: Soylent Corp\nPayment Terms: Net 30 days.\nLiability: As per Master Agreement.\nGoverning Law: California."
+    },
+    {
+      title: "Stark Ind. Service",
+      desc: "Unknown: No Master Found",
+      type: "unknown",
+      text: "SERVICE ORDER - STARK INDUSTRIES\nCounterparty: Stark Industries\nScope: Arc Reactor Maintenance.\nLiability: Unlimited.\nGoverning Law: New York."
+    }
+  ];
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -20 }}
-      className="max-w-4xl mx-auto p-8"
+      className="max-w-6xl mx-auto p-8 space-y-12 pb-24"
     >
-      <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl p-8 shadow-2xl space-y-12">
-
-        <section>
-          <h2 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
-            <BookOpen className="w-8 h-8 text-indigo-400" /> How to Use
-          </h2>
-          <div className="grid gap-6">
-            {[
-              { title: "Upload or Paste", desc: "Upload a PDF contract or paste the text directly into the agent interface." },
-              { title: "AI Analysis", desc: "The agent identifies the counterparty and retrieves the relevant Master Agreement from the database." },
-              { title: "Review Conflicts", desc: "Get an instant clause-by-clause comparison highlighting risks and deviations." }
-            ].map((step, i) => (
-              <div key={i} className="flex gap-4 items-start p-4 rounded-xl bg-white/5 border border-white/5">
-                <div className="w-8 h-8 rounded-full bg-indigo-500 flex items-center justify-center font-bold text-white shrink-0">
-                  {i + 1}
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-white mb-1">{step.title}</h3>
-                  <p className="text-slate-400">{step.desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
-            <Database className="w-8 h-8 text-purple-400" /> The Database
-          </h2>
-          <p className="text-slate-300 leading-relaxed mb-4">
-            The system relies on a "Ground Truth" database stored in Supabase. This contains your organization's
-            executed Master Agreements.
-          </p>
-          <div className="p-4 rounded-xl bg-purple-500/10 border border-purple-500/20">
-            <h4 className="font-bold text-purple-300 mb-2">Example Record Structure</h4>
-            <code className="block font-mono text-sm text-purple-200">
-              {`{
-  "id": 1,
-  "counterparty": "Acme Corp",
-  "content": "Full text of the executed MSA..."
-}`}
-            </code>
-          </div>
-        </section>
-
-        <section>
-          <h2 className="text-3xl font-bold text-white mb-6 flex items-center gap-3">
-            <Server className="w-8 h-8 text-green-400" /> Tech Stack
-          </h2>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-            {['Next.js 15', 'TypeScript', 'Tailwind CSS', 'Framer Motion', 'Supabase', 'OpenRouter', 'Claude 3.5', 'Vercel'].map((tech) => (
-              <div key={tech} className="p-3 rounded-lg bg-white/5 border border-white/10 text-center font-medium text-slate-300 hover:bg-white/10 transition-colors">
-                {tech}
-              </div>
-            ))}
-          </div>
-        </section>
-
+      <div className="text-center mb-8">
+        <h2 className="text-4xl font-bold mb-4 flex items-center justify-center gap-3">
+          <Database className="w-10 h-10 text-indigo-400" /> Knowledge Base & Memory
+        </h2>
+        <p className="text-slate-400 text-lg">The "Ground Truth" that powers the agent's reasoning.</p>
       </div>
+
+      {/* Section 1: Live Connected Data */}
+      <section className="space-y-6">
+        <div className="flex items-center gap-3 mb-4">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <h3 className="text-xl font-bold text-white">Live Connected Data (The 'Now')</h3>
+        </div>
+
+        <div className="bg-white/5 backdrop-blur-xl border border-white/10 rounded-2xl overflow-hidden shadow-2xl">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="border-b border-white/10 bg-white/5">
+                  <th className="p-4 font-bold text-indigo-300 w-20">ID</th>
+                  <th className="p-4 font-bold text-indigo-300 w-48">Counterparty</th>
+                  <th className="p-4 font-bold text-indigo-300">Content Snippet</th>
+                </tr>
+              </thead>
+              <tbody className="text-sm text-slate-300">
+                {loading ? (
+                  <tr>
+                    <td colSpan={3} className="p-8 text-center">
+                      <Loader2 className="w-8 h-8 animate-spin mx-auto text-indigo-500" />
+                    </td>
+                  </tr>
+                ) : contracts.length > 0 ? (
+                  contracts.map((contract) => (
+                    <tr key={contract.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                      <td className="p-4 font-mono text-slate-500">#{contract.id}</td>
+                      <td className="p-4 font-bold text-white">{contract.counterparty}</td>
+                      <td className="p-4 font-mono text-xs text-slate-400 truncate max-w-md">
+                        {contract.content.substring(0, 100)}...
+                      </td>
+                    </tr>
+                  ))
+                ) : (
+                  <tr>
+                    <td colSpan={3} className="p-8 text-center text-slate-500">
+                      No contracts found in database.
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 2: The Schema */}
+      <section className="space-y-6">
+        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+          <Code className="w-5 h-5 text-purple-400" /> The Schema (The 'How')
+        </h3>
+        <div className="bg-[#1e1e1e] rounded-xl shadow-2xl border border-white/10 overflow-hidden font-mono text-sm">
+          {/* Mac Window Controls */}
+          <div className="bg-[#2d2d2d] px-4 py-3 flex items-center gap-2 border-b border-black/50">
+            <div className="w-3 h-3 rounded-full bg-red-500" />
+            <div className="w-3 h-3 rounded-full bg-yellow-500" />
+            <div className="w-3 h-3 rounded-full bg-green-500" />
+            <span className="ml-2 text-xs text-slate-500 font-sans">schema.sql</span>
+          </div>
+          <div className="p-6 text-blue-300 overflow-x-auto">
+            <pre>{sqlSnippet}</pre>
+          </div>
+        </div>
+      </section>
+
+      {/* Section 3: Scalability */}
+      <section className="space-y-6">
+        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+          <TrendingUp className="w-5 h-5 text-green-400" /> Future Extensibility
+        </h3>
+        <div className="p-6 rounded-xl bg-green-500/10 border border-green-500/20 text-green-100 leading-relaxed">
+          Currently, this database holds static Master Agreements. In a production environment, this would sync in real-time
+          with Salesforce, Sirion CLM, or Google Drive to ingest thousands of legacy contracts automatically.
+        </div>
+      </section>
+
+      {/* Section 4: Test Scenarios */}
+      <section className="space-y-6">
+        <h3 className="text-xl font-bold text-white flex items-center gap-2">
+          <Play className="w-5 h-5 text-amber-400" /> Try It Yourself (The 'Action')
+        </h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          {scenarios.map((scenario, i) => (
+            <motion.button
+              key={i}
+              whileHover={{ y: -4, scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => onPromptClick(scenario.text)}
+              className="p-6 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 hover:border-indigo-500/50 transition-all text-left group flex flex-col h-full"
+            >
+              <div className="mb-4">
+                {scenario.type === 'risk' && <AlertTriangle className="w-8 h-8 text-red-400 mb-2" />}
+                {scenario.type === 'conflict' && <AlertCircle className="w-8 h-8 text-amber-400 mb-2" />}
+                {scenario.type === 'safe' && <CheckCircle className="w-8 h-8 text-green-400 mb-2" />}
+                {scenario.type === 'unknown' && <Info className="w-8 h-8 text-blue-400 mb-2" />}
+                <h4 className="font-bold text-white group-hover:text-indigo-300 transition-colors">{scenario.title}</h4>
+                <p className="text-xs text-slate-400 mt-1">{scenario.desc}</p>
+              </div>
+              <div className="mt-auto pt-4 flex items-center text-xs font-bold text-indigo-400 uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity">
+                Load Prompt <ArrowRight className="w-3 h-3 ml-1" />
+              </div>
+            </motion.button>
+          ))}
+        </div>
+      </section>
+
+    </motion.div>
+  );
+}
+
+function StoryView() {
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.2
+      }
+    }
+  };
+
+  const item = {
+    hidden: { opacity: 0, y: 20 },
+    show: { opacity: 1, y: 0 }
+  };
+
+  return (
+    <motion.div
+      variants={container}
+      initial="hidden"
+      animate="show"
+      exit={{ opacity: 0 }}
+      className="max-w-5xl mx-auto p-8 space-y-24 pb-24"
+    >
+      {/* Section 1: The Spark */}
+      <motion.section variants={item} className="text-center space-y-6 py-12">
+        <div className="inline-flex items-center justify-center w-20 h-20 rounded-3xl bg-gradient-to-br from-indigo-500 to-purple-600 mb-4 shadow-2xl shadow-purple-500/30">
+          <Code className="w-10 h-10 text-white" />
+        </div>
+        <h2 className="text-5xl md:text-7xl font-bold tracking-tight">
+          More Than Just <br />
+          <span className="bg-gradient-to-r from-blue-400 to-purple-600 bg-clip-text text-transparent">
+            A Mockup.
+          </span>
+        </h2>
+        <p className="text-xl text-slate-300 max-w-2xl mx-auto leading-relaxed">
+          When I saw the prompt, I didn't want to just draw a picture. With my technical background,
+          I wanted to build something real. This is a fully functional AI Agent, built in 48 hours
+          using the latest Agentic stack.
+        </p>
+      </motion.section>
+
+      {/* Section 2: The Strategy */}
+      <motion.section variants={item}>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          {[
+            {
+              icon: Target,
+              color: "text-blue-400",
+              bg: "bg-blue-500/10",
+              title: "Target Audience",
+              desc: "General Counsels & Sales Ops who lose sleep over 100-page contracts."
+            },
+            {
+              icon: TrendingUp,
+              color: "text-red-400",
+              bg: "bg-red-500/10",
+              title: "The Pain Point",
+              desc: "Revenue Leakage. Companies lose 9% of revenue annually due to poor contract management."
+            },
+            {
+              icon: Zap,
+              color: "text-amber-400",
+              bg: "bg-amber-500/10",
+              title: "The Solution",
+              desc: "Agentic AI that doesn't just 'search'—it 'reasons' and 'protects'."
+            }
+          ].map((card, i) => (
+            <motion.div
+              key={i}
+              whileHover={{ y: -8 }}
+              className="p-8 rounded-2xl bg-white/5 border border-white/10 backdrop-blur-xl hover:bg-white/10 hover:border-white/20 transition-all shadow-xl group"
+            >
+              <div className={`w-12 h-12 ${card.bg} rounded-xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform`}>
+                <card.icon className={`w-6 h-6 ${card.color}`} />
+              </div>
+              <h3 className="text-xl font-bold text-white mb-3">{card.title}</h3>
+              <p className="text-slate-400 leading-relaxed">{card.desc}</p>
+            </motion.div>
+          ))}
+        </div>
+      </motion.section>
+
+      {/* Section 3: The Workflow */}
+      <motion.section variants={item} className="relative">
+        <h3 className="text-3xl font-bold text-center mb-16">The Workflow</h3>
+
+        <div className="absolute left-1/2 top-24 bottom-0 w-px bg-gradient-to-b from-indigo-500/50 via-purple-500/50 to-transparent -translate-x-1/2 hidden md:block" />
+
+        <div className="space-y-12 relative">
+          {[
+            { icon: FileText, title: "Input", desc: "PDF Upload / Paste Text" },
+            { icon: User, title: "Identity", desc: "Agent identifies Counterparty (e.g., Acme Corp)" },
+            { icon: Database, title: "Memory", desc: "Vector Search retrieves Master Agreement" },
+            { icon: Brain, title: "Reasoning", desc: "GPT-4o compares clauses for conflict" },
+            { icon: ShieldCheck, title: "Output", desc: "Real-time Risk Report" }
+          ].map((step, i) => (
+            <motion.div
+              key={i}
+              initial={{ opacity: 0, x: i % 2 === 0 ? -50 : 50 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.5, delay: i * 0.1 }}
+              className={`flex items-center gap-8 md:gap-0 ${i % 2 === 0 ? 'md:flex-row' : 'md:flex-row-reverse'}`}
+            >
+              <div className="flex-1 md:text-right">
+                {i % 2 === 0 && (
+                  <div className="md:pr-12">
+                    <h4 className="text-xl font-bold text-white mb-1">{step.title}</h4>
+                    <p className="text-slate-400">{step.desc}</p>
+                  </div>
+                )}
+              </div>
+
+              <div className="relative z-10 flex items-center justify-center w-12 h-12 rounded-full bg-black border border-white/20 shadow-[0_0_20px_rgba(99,102,241,0.3)] shrink-0">
+                <step.icon className="w-5 h-5 text-indigo-400" />
+              </div>
+
+              <div className="flex-1 md:text-left">
+                {i % 2 !== 0 && (
+                  <div className="md:pl-12">
+                    <h4 className="text-xl font-bold text-white mb-1">{step.title}</h4>
+                    <p className="text-slate-400">{step.desc}</p>
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          ))}
+        </div>
+      </motion.section>
+
+      {/* Section 4: Scalability */}
+      <motion.section variants={item} className="text-center py-12 border-t border-white/10">
+        <div className="inline-flex items-center gap-3 px-4 py-2 rounded-full bg-green-500/10 border border-green-500/20 text-green-400 font-mono text-sm mb-6">
+          <Server className="w-4 h-4" />
+          <span>Serverless Architecture</span>
+        </div>
+        <h3 className="text-3xl font-bold text-white mb-4">Built for Scale</h3>
+        <p className="text-slate-400 max-w-2xl mx-auto">
+          Built on Next.js & Serverless. Ready to scale from 1 contract to 1 million.
+          The architecture decouples storage, compute, and intelligence for infinite horizontal scaling.
+        </p>
+      </motion.section>
+
     </motion.div>
   );
 }
